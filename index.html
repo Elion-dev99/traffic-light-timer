@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>信号タイマー | 次に切り替わるまでの時間</title>
+<meta name="description" content="信号機の青・黄・赤の周期を設定すると、現在の色と次に切り替わるまでの残り秒数をリアルタイムで提示します。観測モードで実際の信号の周期も測れます。">
+<style>
+  :root{
+    --bg:#f2f2f7; --card:#ffffff; --text:#1c1c1e; --sub:#6e6e73; --line:#d1d1d6;
+    --red:#ff3b30; --yellow:#e6b800; --green:#0a9d6c; --ped-red:#ff3b30; --ped-green:#0a9d6c;
+    --accent:#0071e3; --housing:#1c1c1e;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#000000; --card:#1c1c1e; --text:#f5f5f7; --sub:#a1a1a6; --line:#38383a; --housing:#2c2c2e; }
+  }
+  *{ box-sizing:border-box; }
+  body{ margin:0; font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif; background:var(--bg); color:var(--text); }
+  header{ padding:20px 16px 8px; max-width:960px; margin:0 auto; }
+  header h1{ font-size:22px; margin:0 0 4px; letter-spacing:.02em; }
+  header p{ margin:0; color:var(--sub); font-size:13px; line-height:1.6; }
+  main{ max-width:960px; margin:0 auto; padding:12px 16px 40px; display:grid; grid-template-columns:1fr; gap:16px; }
+  @media (min-width:820px){ main{ grid-template-columns:400px 1fr; } }
+  .card{ background:var(--card); border:1px solid var(--line); border-radius:16px; padding:16px; }
+  .card h2{ font-size:15px; margin:0 0 12px; }
+  .card h3{ font-size:13px; margin:20px 0 8px; color:var(--sub); font-weight:600; }
+
+  /* 信号機本体 */
+  .signals{ display:flex; gap:16px; justify-content:center; }
+  .housing{ background:var(--housing); border-radius:20px; padding:14px 12px; display:flex; flex-direction:column; gap:10px; align-items:center; }
+  .housing .label{ color:#f5f5f7; font-size:11px; letter-spacing:.08em; }
+  .lamp{ width:64px; height:64px; border-radius:50%; background:#48484a; display:flex; align-items:center; justify-content:center; font-size:11px; color:#f5f5f7; }
+  .lamp.on-red{ background:var(--red); }
+  .lamp.on-yellow{ background:var(--yellow); color:#1c1c1e; }
+  .lamp.on-green{ background:var(--green); }
+  .lamp.small{ width:52px; height:52px; font-size:10px; }
+  .lamp.flash{ animation:flash 1s steps(2,start) infinite; }
+  @keyframes flash{ 50%{ background:#48484a; color:#f5f5f7; } }
+
+  .status{ text-align:center; margin-top:16px; }
+  .status .phase{ font-size:15px; font-weight:600; }
+  .status .count{ font-size:64px; font-weight:700; line-height:1.1; font-variant-numeric:tabular-nums; }
+  .status .count small{ font-size:20px; font-weight:600; color:var(--sub); }
+  .status .next{ color:var(--sub); font-size:13px; }
+  .bar{ height:8px; background:var(--bg); border:1px solid var(--line); border-radius:4px; overflow:hidden; margin:14px 0 6px; }
+  .bar > div{ height:100%; background:var(--accent); width:0%; transition:width .2s linear; }
+  .timeline{ display:flex; gap:6px; margin-top:10px; }
+  .timeline div{ flex:1; text-align:center; font-size:11px; color:var(--sub); border-top:4px solid var(--line); padding-top:6px; font-variant-numeric:tabular-nums; }
+  .timeline .t-green{ border-color:var(--green); } .timeline .t-yellow{ border-color:var(--yellow); } .timeline .t-red{ border-color:var(--red); }
+  .timeline div.active{ color:var(--text); font-weight:700; }
+  .clock{ text-align:center; color:var(--sub); font-size:12px; margin-top:10px; font-variant-numeric:tabular-nums; }
+
+  label{ display:block; font-size:13px; margin:10px 0 4px; }
+  input, select{ width:100%; padding:10px; font-size:15px; border:1px solid var(--line); border-radius:10px; background:var(--card); color:var(--text); }
+  .row{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; }
+  .row2{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  button{ appearance:none; border:1px solid var(--line); background:var(--card); color:var(--text); border-radius:10px; padding:10px 12px; font-size:14px; cursor:pointer; }
+  button.primary{ background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+  button:active{ opacity:.7; }
+  .btns{ display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+  .note{ font-size:12px; color:var(--sub); line-height:1.7; }
+  table{ width:100%; border-collapse:collapse; font-size:13px; font-variant-numeric:tabular-nums; }
+  th,td{ border-bottom:1px solid var(--line); padding:6px 4px; text-align:left; }
+  .obs-btns{ display:flex; gap:8px; }
+  .obs-btns button{ flex:1; font-weight:600; }
+  .obs-btns .b-green{ border-color:var(--green); } .obs-btns .b-yellow{ border-color:var(--yellow); } .obs-btns .b-red{ border-color:var(--red); }
+  footer{ max-width:960px; margin:0 auto; padding:0 16px 32px; color:var(--sub); font-size:12px; line-height:1.7; }
+</style>
+</head>
+<body>
+<header>
+  <h1>信号タイマー</h1>
+  <p>周期を設定して基準時刻に合わせると、現在の色と「次に切り替わるまで何秒か」をリアルタイムで提示します。設定はこの端末の中だけに保存され、外部に送信されません。</p>
+</header>
+
+<main>
+  <!-- 表示 -->
+  <section class="card" aria-label="現在の信号">
+    <div class="signals">
+      <div class="housing" aria-label="車両用信号">
+        <div class="lamp" id="lampRed">赤</div>
+        <div class="lamp" id="lampYellow">黄</div>
+        <div class="lamp" id="lampGreen">青</div>
+        <div class="label">車両用</div>
+      </div>
+      <div class="housing" aria-label="歩行者用信号">
+        <div class="lamp small" id="lampPedRed">止まれ</div>
+        <div class="lamp small" id="lampPedGreen">歩行</div>
+        <div class="label">歩行者用</div>
+      </div>
+    </div>
+
+    <div class="status">
+      <div class="phase" id="phaseLabel">—</div>
+      <div class="count"><span id="countSec">–</span><small> 秒</small></div>
+      <div class="next" id="nextLabel">次に切り替わるまで</div>
+      <div class="bar"><div id="phaseBar"></div></div>
+      <div class="timeline">
+        <div id="tlGreen" class="t-green">青 <span id="tlGreenSec"></span>秒</div>
+        <div id="tlYellow" class="t-yellow">黄 <span id="tlYellowSec"></span>秒</div>
+        <div id="tlRed" class="t-red">赤 <span id="tlRedSec"></span>秒</div>
+      </div>
+      <div class="clock">現在時刻 <span id="clock">–</span> ／ 周期 <span id="cycleSec">–</span>秒</div>
+    </div>
+  </section>
+
+  <!-- 設定・観測 -->
+  <section class="card">
+    <h2>信号の設定</h2>
+    <label for="presetSelect">保存済みの信号</label>
+    <select id="presetSelect"></select>
+    <div class="btns">
+      <button id="btnNew" type="button">新規</button>
+      <button id="btnDelete" type="button">この信号を削除</button>
+      <button id="btnShare" type="button">共有リンクをコピー</button>
+    </div>
+
+    <label for="name">名前（交差点名など）</label>
+    <input id="name" type="text" placeholder="例：梅田 ○○交差点">
+
+    <div class="row">
+      <div><label for="greenSec">青（秒）</label><input id="greenSec" type="number" min="1" max="3600" step="1"></div>
+      <div><label for="yellowSec">黄（秒）</label><input id="yellowSec" type="number" min="1" max="600" step="1"></div>
+      <div><label for="redSec">赤（秒）</label><input id="redSec" type="number" min="1" max="3600" step="1"></div>
+    </div>
+    <div class="row2">
+      <div><label for="pedFlashSec">歩行者 青点滅（青の終わりの秒数）</label><input id="pedFlashSec" type="number" min="0" max="600" step="1"></div>
+      <div><label for="anchorInput">基準時刻（青が始まった時刻）</label><input id="anchorInput" type="datetime-local" step="1"></div>
+    </div>
+    <div class="btns">
+      <button id="btnAnchorNow" type="button" class="primary">今、青になった（基準を今に合わせる）</button>
+      <button id="btnSave" type="button">保存</button>
+    </div>
+    <p class="note">使い方は3つだけです。①実際の信号を見て青・黄・赤の長さを入れる ②青に変わった瞬間に「今、青になった」を押す ③あとは残り秒数が自動で進みます。長さが分からない信号は、下の観測モードで測れます。</p>
+
+    <h3>観測モード（実際の信号を測る）</h3>
+    <p class="note">信号が切り替わった瞬間に、その色のボタンを押してください。2周期以上記録すると、各色の長さと周期を推定して設定に反映できます。</p>
+    <div class="obs-btns">
+      <button type="button" class="b-green" id="obsGreen">青になった</button>
+      <button type="button" class="b-yellow" id="obsYellow">黄になった</button>
+      <button type="button" class="b-red" id="obsRed">赤になった</button>
+    </div>
+    <div class="btns">
+      <button id="btnObsApply" type="button">観測結果を設定に反映</button>
+      <button id="btnObsClear" type="button">観測記録を消す</button>
+    </div>
+    <div id="obsResult" style="margin-top:10px"></div>
+    <table id="obsTable" aria-label="観測記録"></table>
+  </section>
+</main>
+
+<footer>
+  注意：実際の信号は時間帯や交通状況で周期が変わる場合があります（感応式・系統式など）。このページの表示は設定した周期に基づく目安です。歩行・乗車中は画面ではなく実際の信号を確認してください。
+</footer>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const STORE_KEY = "traffic-light-timer:v1";
+
+const DEFAULTS = { name:"", greenSec:50, yellowSec:5, redSec:55, pedFlashSec:10, anchorMs: Date.now() };
+
+function sanitize(c){
+  const num = (v, min, max, d) => { v = Number(v); return Number.isFinite(v) ? Math.min(max, Math.max(min, Math.round(v))) : d; };
+  return {
+    name: String(c.name || ""),
+    greenSec: num(c.greenSec, 1, 3600, DEFAULTS.greenSec),
+    yellowSec: num(c.yellowSec, 1, 600, DEFAULTS.yellowSec),
+    redSec: num(c.redSec, 1, 3600, DEFAULTS.redSec),
+    pedFlashSec: num(c.pedFlashSec, 0, 600, DEFAULTS.pedFlashSec),
+    anchorMs: Number.isFinite(Number(c.anchorMs)) ? Number(c.anchorMs) : Date.now()
+  };
+}
+function cycleOf(c){ return c.greenSec + c.yellowSec + c.redSec; }
+
+/* 現在のフェーズを返す純粋関数（テスト可能に分離） */
+function phaseAt(c, nowMs){
+  const cycle = cycleOf(c);
+  let pos = ((nowMs - c.anchorMs) / 1000) % cycle;
+  if (pos < 0) pos += cycle;
+  const phases = [
+    { key:"green",  label:"青", duration:c.greenSec },
+    { key:"yellow", label:"黄", duration:c.yellowSec },
+    { key:"red",    label:"赤", duration:c.redSec }
+  ];
+  let acc = 0;
+  for (const p of phases){
+    if (pos < acc + p.duration){
+      const elapsed = pos - acc;
+      return { ...p, posInCycle: pos, elapsedInPhase: elapsed, remaining: p.duration - elapsed, cycle };
+    }
+    acc += p.duration;
+  }
+  return { ...phases[0], posInCycle:0, elapsedInPhase:0, remaining:c.greenSec, cycle };
+}
+function pedStateAt(c, nowMs){
+  const ph = phaseAt(c, nowMs);
+  if (ph.key !== "green") return "red";
+  const remainGreen = c.greenSec - ph.elapsedInPhase;
+  return remainGreen <= c.pedFlashSec && c.pedFlashSec > 0 ? "flash" : "green";
+}
+
+/* ---------- 状態 ---------- */
+let presets = loadPresets();
+let currentId = presets.length ? presets[0].id : null;
+let config = currentId ? sanitize(presets[0].config) : { ...DEFAULTS };
+
+function loadPresets(){
+  try { const v = JSON.parse(localStorage.getItem(STORE_KEY) || "[]"); return Array.isArray(v) ? v : []; }
+  catch { return []; }
+}
+function persist(){ localStorage.setItem(STORE_KEY, JSON.stringify(presets)); }
+
+function renderPresetSelect(){
+  const sel = $("presetSelect");
+  sel.innerHTML = "";
+  if (!presets.length){
+    const o = document.createElement("option"); o.textContent = "（保存済みなし）"; o.value = ""; sel.appendChild(o); return;
+  }
+  for (const p of presets){
+    const o = document.createElement("option"); o.value = p.id; o.textContent = p.config.name || "無名の信号"; sel.appendChild(o);
+  }
+  sel.value = currentId || "";
+}
+function fillForm(){
+  $("name").value = config.name;
+  $("greenSec").value = config.greenSec;
+  $("yellowSec").value = config.yellowSec;
+  $("redSec").value = config.redSec;
+  $("pedFlashSec").value = config.pedFlashSec;
+  const d = new Date(config.anchorMs - new Date(config.anchorMs).getTimezoneOffset() * 60000);
+  $("anchorInput").value = d.toISOString().slice(0, 19);
+  $("tlGreenSec").textContent = config.greenSec;
+  $("tlYellowSec").textContent = config.yellowSec;
+  $("tlRedSec").textContent = config.redSec;
+  $("cycleSec").textContent = cycleOf(config);
+}
+function readForm(){
+  config = sanitize({
+    name: $("name").value,
+    greenSec: $("greenSec").value, yellowSec: $("yellowSec").value, redSec: $("redSec").value,
+    pedFlashSec: $("pedFlashSec").value,
+    anchorMs: $("anchorInput").value ? new Date($("anchorInput").value).getTime() : config.anchorMs
+  });
+  fillForm();
+}
+
+/* ---------- 表示 ---------- */
+function tick(){
+  const now = Date.now();
+  const ph = phaseAt(config, now);
+  const ped = pedStateAt(config, now);
+  $("lampRed").className = "lamp" + (ph.key === "red" ? " on-red" : "");
+  $("lampYellow").className = "lamp" + (ph.key === "yellow" ? " on-yellow" : "");
+  $("lampGreen").className = "lamp" + (ph.key === "green" ? " on-green" : "");
+  $("lampPedRed").className = "lamp small" + (ped === "red" ? " on-red" : "");
+  $("lampPedGreen").className = "lamp small" + (ped === "green" ? " on-green" : ped === "flash" ? " on-green flash" : "");
+  const nextName = ph.key === "green" ? "黄" : ph.key === "yellow" ? "赤" : "青";
+  $("phaseLabel").textContent = `現在：${ph.label}` + (ped === "flash" ? "（歩行者は点滅）" : "");
+  $("countSec").textContent = Math.ceil(ph.remaining);
+  $("nextLabel").textContent = `あと ${Math.ceil(ph.remaining)} 秒で ${nextName} に切り替わります`;
+  $("phaseBar").style.width = (ph.elapsedInPhase / ph.duration * 100) + "%";
+  $("tlGreen").className = "t-green" + (ph.key === "green" ? " active" : "");
+  $("tlYellow").className = "t-yellow" + (ph.key === "yellow" ? " active" : "");
+  $("tlRed").className = "t-red" + (ph.key === "red" ? " active" : "");
+  $("clock").textContent = new Date(now).toLocaleTimeString("ja-JP");
+}
+setInterval(tick, 200);
+
+/* ---------- 操作 ---------- */
+for (const id of ["name","greenSec","yellowSec","redSec","pedFlashSec","anchorInput"])
+  $(id).addEventListener("change", readForm);
+
+$("btnAnchorNow").addEventListener("click", () => { config.anchorMs = Date.now(); fillForm(); tick(); });
+$("btnSave").addEventListener("click", () => {
+  readForm();
+  if (!currentId){
+    currentId = "s" + Date.now().toString(36);
+    presets.push({ id: currentId, config: { ...config } });
+  } else {
+    const p = presets.find(x => x.id === currentId); if (p) p.config = { ...config };
+  }
+  persist(); renderPresetSelect();
+});
+$("btnNew").addEventListener("click", () => { currentId = null; config = { ...DEFAULTS, anchorMs: Date.now() }; fillForm(); renderPresetSelect(); tick(); });
+$("btnDelete").addEventListener("click", () => {
+  if (!currentId) return;
+  presets = presets.filter(x => x.id !== currentId);
+  currentId = presets.length ? presets[0].id : null;
+  config = currentId ? sanitize(presets[0].config) : { ...DEFAULTS, anchorMs: Date.now() };
+  persist(); renderPresetSelect(); fillForm(); tick();
+});
+$("presetSelect").addEventListener("change", e => {
+  const p = presets.find(x => x.id === e.target.value); if (!p) return;
+  currentId = p.id; config = sanitize(p.config); fillForm(); tick();
+});
+$("btnShare").addEventListener("click", async () => {
+  readForm();
+  const hash = "#c=" + btoa(unescape(encodeURIComponent(JSON.stringify(config))));
+  const url = location.origin + location.pathname + hash;
+  history.replaceState(null, "", hash);
+  try { await navigator.clipboard.writeText(url); $("btnShare").textContent = "コピーしました"; }
+  catch { $("btnShare").textContent = "URL欄のリンクを使ってください"; }
+  setTimeout(() => $("btnShare").textContent = "共有リンクをコピー", 2000);
+});
+
+/* 共有リンクから復元 */
+(function fromHash(){
+  if (!location.hash.startsWith("#c=")) return;
+  try { config = sanitize(JSON.parse(decodeURIComponent(escape(atob(location.hash.slice(3)))))); } catch {}
+})();
+
+/* ---------- 観測モード ---------- */
+let observations = []; // {key, at}
+function addObs(key){
+  observations.push({ key, at: Date.now() });
+  observations.sort((a,b) => a.at - b.at);
+  renderObs();
+}
+function estimateFromObs(){
+  const dur = { green:[], yellow:[], red:[] };
+  for (let i = 1; i < observations.length; i++){
+    const prev = observations[i-1], cur = observations[i];
+    const sec = (cur.at - prev.at) / 1000;
+    if (sec > 0 && sec < 3600) dur[prev.key].push(sec);
+  }
+  const avg = a => a.length ? Math.round(a.reduce((s,v) => s+v,0) / a.length) : null;
+  return { greenSec: avg(dur.green), yellowSec: avg(dur.yellow), redSec: avg(dur.red),
+           counts:{ green:dur.green.length, yellow:dur.yellow.length, red:dur.red.length } };
+}
+function renderObs(){
+  const t = $("obsTable");
+  t.innerHTML = observations.length ? "<tr><th>色</th><th>時刻</th><th>前の色からの秒数</th></tr>" : "";
+  observations.forEach((o,i) => {
+    const tr = document.createElement("tr");
+    const label = o.key === "green" ? "青" : o.key === "yellow" ? "黄" : "赤";
+    const diff = i ? ((o.at - observations[i-1].at)/1000).toFixed(1) : "—";
+    tr.innerHTML = `<td>${label}になった</td><td>${new Date(o.at).toLocaleTimeString("ja-JP")}</td><td>${diff}</td>`;
+    t.appendChild(tr);
+  });
+  const est = estimateFromObs();
+  $("obsResult").innerHTML = (est.greenSec || est.yellowSec || est.redSec)
+    ? `<p class="note">推定： 青 ${est.greenSec ?? "—"}秒（${est.counts.green}回）／ 黄 ${est.yellowSec ?? "—"}秒（${est.counts.yellow}回）／ 赤 ${est.redSec ?? "—"}秒（${est.counts.red}回）</p>` : "";
+  window._lastEstimate = est;
+}
+$("obsGreen").addEventListener("click", () => addObs("green"));
+$("obsYellow").addEventListener("click", () => addObs("yellow"));
+$("obsRed").addEventListener("click", () => addObs("red"));
+$("btnObsClear").addEventListener("click", () => { observations = []; renderObs(); });
+$("btnObsApply").addEventListener("click", () => {
+  const est = window._lastEstimate; if (!est) return;
+  const firstGreen = observations.find(o => o.key === "green");
+  config = sanitize({ ...config,
+    greenSec: est.greenSec ?? config.greenSec,
+    yellowSec: est.yellowSec ?? config.yellowSec,
+    redSec: est.redSec ?? config.redSec,
+    anchorMs: firstGreen ? firstGreen.at : config.anchorMs });
+  fillForm(); tick();
+});
+
+renderPresetSelect(); fillForm(); tick();
+</script>
+</body>
+</html>
